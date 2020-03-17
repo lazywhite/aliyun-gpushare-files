@@ -1,0 +1,88 @@
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  namespace: default
+  name: ack-prometheus-gpu-exporter
+spec:
+  selector:
+    matchLabels:
+      k8s-app: ack-prometheus-gpu-exporter
+  template:
+    metadata:
+      labels:
+        k8s-app: ack-prometheus-gpu-exporter
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: aliyun.accelerator/nvidia_count
+                operator: Exists
+      hostPID: true
+      containers:
+      - name: node-gpu-exporter
+        image: registry.cn-hangzhou.aliyuncs.com/acs/gpu-prometheus-exporter:0.1-1a03a9d
+        imagePullPolicy: Always
+        ports:
+        - name: http-metrics
+          containerPort: 9445
+        env:
+          - name: MY_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+        resources:
+          requests:
+            memory: 50Mi
+            cpu: 200m
+          limits:
+            memory: 100Mi
+            cpu: 300m
+        volumeMounts:
+        - mountPath: /var/run/docker.sock
+          name: docker-sock
+      volumes:
+      - hostPath:
+          path: /var/run/docker.sock
+          type: File
+        name: docker-sock
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-gpu-exporter
+  namespace: default
+  labels:
+    k8s-app: ack-prometheus-gpu-exporter
+spec:
+  type: ClusterIP
+  ports:
+  - name: http-metrics
+    port: 9445
+    protocol: TCP
+  selector:
+    k8s-app: ack-prometheus-gpu-exporter
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ack-prometheus-gpu-exporter
+  labels:
+    release: ack-prometheus-operator
+    app: ack-prometheus-gpu-exporter
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      k8s-app: ack-prometheus-gpu-exporter
+  namespaceSelector:
+    matchNames:
+    - default
+  endpoints:
+  - port: http-metrics
+    interval: 30s
